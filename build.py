@@ -1,38 +1,19 @@
 #!/usr/bin/env python3
 """
 Character Persona Hub — Static Programmatic SEO Website Generator
-=================================================================
-
-Python 3 standard library only. No external dependencies.
+Python 3 standard library only.
 
 Usage:
     python3 build.py
-
-Optional:
-    BASE_URL="https://example.com" python3 build.py
 
 Input:
     data.csv
 
 Output:
     dist/
-      index.html
-      persona/
-      category/
-      topic/
-      tag/
-      sitemap.xml
-      sitemap-1.xml
-      sitemap.xsl
-      robots.txt
-      dmca.html
-      2257.html
-
-Designed for Cloudflare Pages and Cloudflare Workers static hosting.
 """
 
 import os
-from datetime import datetime
 import csv
 import re
 import json
@@ -40,7 +21,8 @@ import html
 import math
 import shutil
 import unicodedata
-from collections import Counter, defaultdict
+from datetime import datetime
+from collections import defaultdict, Counter
 from urllib.parse import quote
 
 # ============================================================
@@ -53,13 +35,13 @@ BASE_URL = os.environ.get(
 ).rstrip("/")
 
 SITE_NAME = "Character Persona Hub"
-NICHE_TOPIC = "AI Companion Character Cards, Persona Templates & Dialogue Hooks"
 CONTACT_EMAIL = "nancympatten@gmail.com"
+
+GOOGLE_VERIFICATION = "Ee2L9A2G2nVVNtBt7HiplcBJf1nSen-Rcz4sNqLuAdc"
+BING_VERIFICATION = "4573069C62AEC27DA4F08DC57760BAD4"
 
 AFFILIATE_URL = "#affiliate-link"
 AFFILIATE_CTA_TEXT = "Import This Character Card into an AI Voice Companion"
-
-CURRENT_YEAR = datetime.utcnow().year
 
 DATA_FILE = "data.csv"
 OUTPUT_DIR = "dist"
@@ -69,22 +51,35 @@ RELATED_LIMIT = 8
 NEWEST_LIMIT = 30
 SITEMAP_LIMIT = 45000
 
+CURRENT_YEAR = datetime.utcnow().year
+
 CSV_COLUMNS = [
-    "slug",
-    "title",
-    "category",
-    "subcategory",
-    "target_keyword",
-    "character_bio",
-    "personality_traits",
-    "opening_line",
-    "description",
-    "tags",
-    "faq_q1",
-    "faq_a1",
-    "faq_q2",
-    "faq_a2",
-    "upload_date",
+    "slug", "title", "category", "subcategory", "target_keyword",
+    "character_bio", "personality_traits", "opening_line",
+    "description", "tags", "faq_q1", "faq_a1",
+    "faq_q2", "faq_a2", "upload_date",
+]
+
+# The current website is deliberately excluded from this list.
+NETWORK_SITES = [
+    ("AI Girlfriend Prompts",
+     "https://ai-girlfriend-prompts.velvetgrid.workers.dev"),
+    ("Couples Intimacy Games",
+     "https://couples-intimacy-games.velvetgrid.workers.dev"),
+    ("Fantasy Roleplay Hub",
+     "https://fantasy-roleplay-hub.velvetgrid.workers.dev"),
+    ("Flirty Chat Openers",
+     "https://flirty-chat-openers.velvetgrid.workers.dev"),
+    ("Midnight Audio Stories",
+     "https://midnight-audio-stories.velvetgrid.workers.dev"),
+    ("Spicy Party Games",
+     "https://spicy-party-games.velvetgrid.workers.dev"),
+    ("Intimacy Quiz Hub",
+     "https://intimacy-quiz-hub.velvetgrid.workers.dev"),
+    ("Couples Bucket List",
+     "https://couples-bucket-list.velvetgrid.workers.dev"),
+    ("Adult AI Art Prompts",
+     "https://adult-ai-art-prompts.velvetgrid.workers.dev"),
 ]
 
 AD_SLOTS = """
@@ -95,35 +90,22 @@ AD_SLOTS = """
 """
 
 # ============================================================
-# GLOBAL UTILITIES
+# UTILITIES
 # ============================================================
+
+def clean(value):
+    return str(value or "").strip()
 
 
 def esc(value):
     return html.escape(str(value or ""), quote=True)
 
 
-def clean(value):
-    return str(value or "").strip()
-
-
 def slugify(value):
     value = unicodedata.normalize("NFKD", clean(value))
-    value = value.encode("ascii", "ignore").decode("ascii")
-    value = value.lower()
+    value = value.encode("ascii", "ignore").decode("ascii").lower()
     value = re.sub(r"[^a-z0-9]+", "-", value)
     return value.strip("-") or "uncategorized"
-
-
-def safe_json(data):
-    return (
-        json.dumps(data, ensure_ascii=False)
-        .replace("<", "\\u003c")
-        .replace(">", "\\u003e")
-        .replace("&", "\\u0026")
-        .replace("\u2028", "\\u2028")
-        .replace("\u2029", "\\u2029")
-    )
 
 
 def absolute_url(path):
@@ -137,14 +119,22 @@ def truncate(value, limit=160):
     return value[:limit - 3].rsplit(" ", 1)[0] + "..."
 
 
-def split_tags(value):
-    if not value:
-        return []
+def safe_json(data):
+    return (
+        json.dumps(data, ensure_ascii=False)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
 
+
+def split_tags(value):
     if isinstance(value, list):
         raw = value
     else:
-        raw = re.split(r"[,;|]", str(value))
+        raw = re.split(r"[,;|]", str(value or ""))
 
     result = []
     seen = set()
@@ -152,7 +142,6 @@ def split_tags(value):
     for item in raw:
         item = clean(item)
         key = item.lower()
-
         if item and key not in seen:
             seen.add(key)
             result.append(item)
@@ -182,18 +171,36 @@ def parse_date(value):
             pass
 
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(
-            tzinfo=None
-        )
+        return datetime.fromisoformat(
+            value.replace("Z", "+00:00")
+        ).replace(tzinfo=None)
     except ValueError:
         return datetime.min
 
 
+def write_file(path, content):
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+
+    with open(path, "w", encoding="utf-8", newline="\n") as file:
+        file.write(content)
+
+
+def make_directory():
+    if os.path.exists(OUTPUT_DIR):
+        shutil.rmtree(OUTPUT_DIR)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+# ============================================================
+# CSV
+# ============================================================
+
 def read_csv():
     if not os.path.isfile(DATA_FILE):
         raise FileNotFoundError(
-            f"Missing {DATA_FILE}. Place your character persona CSV "
-            "in the same directory as build.py."
+            f"Missing {DATA_FILE}. Put data.csv beside build.py."
         )
 
     rows = []
@@ -204,10 +211,7 @@ def read_csv():
         if not reader.fieldnames:
             raise ValueError("data.csv has no header row.")
 
-        missing = [
-            column for column in CSV_COLUMNS
-            if column not in reader.fieldnames
-        ]
+        missing = [c for c in CSV_COLUMNS if c not in reader.fieldnames]
 
         if missing:
             raise ValueError(
@@ -217,19 +221,13 @@ def read_csv():
         used_slugs = set()
 
         for line_number, raw in enumerate(reader, start=2):
-            row = {
-                column: clean(raw.get(column, ""))
-                for column in CSV_COLUMNS
-            }
+            row = {c: clean(raw.get(c, "")) for c in CSV_COLUMNS}
 
             if not row["title"]:
                 print(f"Skipping row {line_number}: missing title.")
                 continue
 
-            original_slug = slugify(
-                row["slug"] or row["title"]
-            )
-
+            original_slug = slugify(row["slug"] or row["title"])
             slug = original_slug
             suffix = 2
 
@@ -240,11 +238,10 @@ def read_csv():
             used_slugs.add(slug)
             row["slug"] = slug
 
-            if not row["category"]:
-                row["category"] = "General Personas"
-
-            if not row["subcategory"]:
-                row["subcategory"] = "Character Templates"
+            row["category"] = row["category"] or "General Personas"
+            row["subcategory"] = (
+                row["subcategory"] or "Character Templates"
+            )
 
             if not row["description"]:
                 row["description"] = (
@@ -258,7 +255,6 @@ def read_csv():
                 for t in row["personality_traits"].split("|")
                 if clean(t)
             ]
-
             row["_date"] = parse_date(row["upload_date"])
             row["_category_slug"] = slugify(row["category"])
             row["_subcategory_slug"] = slugify(row["subcategory"])
@@ -274,665 +270,182 @@ def read_csv():
     return rows
 
 
-def write_file(path, content):
-    directory = os.path.dirname(path)
-
-    if directory:
-        os.makedirs(directory, exist_ok=True)
-
-    with open(path, "w", encoding="utf-8", newline="\n") as file:
-        file.write(content)
-
-
-def make_directory():
-    if os.path.exists(OUTPUT_DIR):
-        shutil.rmtree(OUTPUT_DIR)
-
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-
 # ============================================================
-# DESIGN SYSTEM
+# CSS
 # ============================================================
 
 CSS = r"""
 :root {
     color-scheme: dark;
-    --bg: #0a080d;
-    --surface: #16111d;
-    --surface-2: #201827;
-    --surface-3: #291d32;
-    --text: #f8f2fa;
-    --muted: #aa9eaf;
-    --border: rgba(255,255,255,.09);
-    --rose: #f43f5e;
-    --violet: #8b5cf6;
-    --green: #4ade80;
-    --radius: 18px;
-    --max-width: 1160px;
-}
-
-* {
-    box-sizing: border-box;
-}
-
-html {
-    scroll-behavior: smooth;
-}
-
-body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system,
-                 BlinkMacSystemFont, "Segoe UI", sans-serif;
-    line-height: 1.7;
-}
-
-a {
-    color: inherit;
-    text-decoration: none;
-}
-
-a:hover {
-    color: var(--rose);
-}
-
-button, input, select {
-    font: inherit;
-}
-
-button {
-    cursor: pointer;
-}
-
-.container {
-    width: min(var(--max-width), calc(100% - 36px));
-    margin: auto;
-}
-
-.site-header {
-    position: sticky;
-    top: 0;
-    z-index: 50;
-    background: rgba(10,8,13,.94);
-    backdrop-filter: blur(18px);
-    border-bottom: 1px solid var(--border);
-}
-
-.nav {
-    min-height: 70px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-}
-
-.brand {
-    font-size: 19px;
-    font-weight: 900;
-    letter-spacing: -.8px;
-}
-
-.brand span {
-    color: var(--rose);
-}
-
-.nav-links {
-    display: flex;
-    gap: 20px;
-    align-items: center;
-    font-size: 13px;
-    color: var(--muted);
-}
-
-.hero {
-    padding: 85px 0 55px;
-    text-align: center;
-    background:
-        radial-gradient(ellipse at 20% 20%, rgba(139,92,246,.14), transparent 45%),
-        radial-gradient(ellipse at 80% 40%, rgba(244,63,94,.12), transparent 45%);
-}
-
-.eyebrow {
-    display: inline-flex;
-    padding: 6px 13px;
-    border-radius: 99px;
-    border: 1px solid rgba(244,63,94,.3);
-    background: rgba(244,63,94,.08);
-    color: #ff8196;
-    font-size: 11px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-}
-
-.hero h1 {
-    font-size: clamp(34px, 6vw, 62px);
-    line-height: 1.08;
-    letter-spacing: -2.5px;
-    max-width: 850px;
-    margin: 22px auto;
-}
-
-.gradient-text {
-    background: linear-gradient(100deg, #fb7185, #c084fc);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-}
-
-.hero p {
-    color: var(--muted);
-    max-width: 650px;
-    margin: 0 auto 30px;
-}
-
-.search-wrap {
-    max-width: 680px;
-    margin: 30px auto 0;
-    position: relative;
-}
-
-.search-input {
-    width: 100%;
-    padding: 19px 22px 19px 54px;
-    border: 1px solid rgba(244,63,94,.3);
-    border-radius: 15px;
-    outline: none;
-    color: white;
-    background: var(--surface);
-    box-shadow: 0 15px 60px rgba(0,0,0,.2);
-}
-
-.search-input:focus {
-    border-color: var(--rose);
-    box-shadow: 0 0 0 3px rgba(244,63,94,.12);
-}
-
-.search-icon {
-    position: absolute;
-    left: 19px;
-    top: 14px;
-    color: var(--rose);
-    font-size: 21px;
-}
-
-.section {
-    padding: 45px 0;
-}
-
-.section-heading {
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-bottom: 24px;
-}
-
-.section-heading h2 {
-    font-size: clamp(23px, 4vw, 32px);
-    letter-spacing: -.8px;
-    margin: 0;
-}
-
-.section-heading p {
-    margin: 4px 0 0;
-    color: var(--muted);
-    font-size: 13px;
-}
-
-.grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 18px;
-}
-
-.persona-card,
-.hub-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 21px;
-    transition: transform .2s, border-color .2s;
-}
-
-.persona-card:hover,
-.hub-card:hover {
-    transform: translateY(-3px);
-    border-color: rgba(244,63,94,.4);
-}
-
-.card-category {
-    color: #c4a4ff;
-    font-size: 11px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-
-.persona-card h3 {
-    font-size: 19px;
-    line-height: 1.35;
-    margin: 10px 0;
-}
-
-.persona-card p {
-    color: var(--muted);
-    font-size: 13px;
-}
-
-.card-meta {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-top: 15px;
-}
-
-.pill {
-    display: inline-flex;
-    align-items: center;
-    border-radius: 99px;
-    padding: 5px 11px;
-    background: rgba(139,92,246,.13);
-    border: 1px solid rgba(139,92,246,.23);
-    color: #d3bdff;
-    font-size: 11px;
-}
-
-.trait-pill {
-    background: rgba(244,63,94,.10);
-    border: 1px solid rgba(244,63,94,.28);
-    color: #ff9bad;
-    box-shadow: 0 0 13px rgba(244,63,94,.07);
-}
-
-.card-link {
-    display: inline-block;
-    margin-top: 15px;
-    color: #fb7185;
-    font-size: 13px;
-    font-weight: 800;
-}
-
-.hub-card {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-}
-
-.hub-card strong {
-    font-size: 14px;
-}
-
-.count {
-    color: #ff8498;
-    font-size: 12px;
-    white-space: nowrap;
-}
-
-.tag-cloud {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-}
-
-.tag-cloud a,
-.subcategory-pill {
-    display: inline-flex;
-    padding: 8px 14px;
-    border-radius: 99px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: #d7c8dc;
-    font-size: 12px;
-}
-
-.tag-cloud a:hover,
-.subcategory-pill:hover {
-    border-color: var(--rose);
-}
-
-.breadcrumbs {
-    color: var(--muted);
-    font-size: 12px;
-    padding: 22px 0;
-}
-
-.detail-hero {
-    padding: 35px 0;
-}
-
-.detail-hero h1 {
-    font-size: clamp(30px, 5vw, 48px);
-    line-height: 1.13;
-    letter-spacing: -1.5px;
-    margin: 15px 0;
-}
-
-.detail-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 310px;
-    gap: 25px;
-    align-items: start;
-}
-
-.panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 25px;
-    margin-bottom: 20px;
-}
-
-.panel h2 {
-    margin-top: 0;
-    font-size: 21px;
-}
-
-.panel h3 {
-    font-size: 16px;
-}
-
-.panel p {
-    color: #c8bccd;
-}
-
-.status-badge {
-    display: inline-flex;
-    padding: 7px 12px;
-    border: 1px solid rgba(74,222,128,.3);
-    color: var(--green);
-    background: rgba(74,222,128,.07);
-    border-radius: 99px;
-    font-size: 11px;
-    font-weight: 800;
-}
-
-.traits {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 9px;
-}
-
-.trait-pill {
-    padding: 8px 13px;
-    border-radius: 99px;
-    font-size: 12px;
-    font-weight: 700;
-}
-
-.customizer-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0,1fr));
-    gap: 12px;
-}
-
-.field label {
-    display: block;
-    margin-bottom: 7px;
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 700;
-}
-
-.field input,
-.field select {
-    width: 100%;
-    background: #0d0a11;
-    color: white;
-    border: 1px solid var(--border);
-    padding: 12px;
-    border-radius: 10px;
-    outline: none;
-}
-
-.field input:focus,
-.field select:focus {
-    border-color: var(--rose);
-}
-
-.action-btn {
-    border: 1px solid rgba(244,63,94,.3);
-    background: rgba(244,63,94,.12);
-    color: #ff9bab;
-    padding: 10px 15px;
-    border-radius: 10px;
-    font-size: 12px;
-    font-weight: 800;
-    transition: .2s;
-}
-
-.action-btn:hover {
-    background: rgba(244,63,94,.23);
-}
-
-.primary-btn {
-    border: 0;
-    color: white;
-    background: linear-gradient(100deg, #f43f5e, #8b5cf6);
-    padding: 13px 19px;
-    border-radius: 11px;
-    font-weight: 900;
-    font-size: 12px;
-}
-
-.button-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 17px;
-}
-
-.token-badge {
-    display: inline-block;
-    padding: 6px 11px;
-    background: rgba(139,92,246,.15);
-    border-radius: 99px;
-    color: #d4bdff;
-    font-size: 11px;
-}
-
-.prompt-output {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    background: #0d0a11;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 17px;
-    color: #ddd1e2;
-    font-size: 13px;
-}
-
-.affiliate-card {
-    border: 1px solid rgba(244,63,94,.4);
-    background:
-        radial-gradient(circle at 90% 0%, rgba(139,92,246,.2), transparent 50%),
-        var(--surface);
-    border-radius: var(--radius);
-    padding: 27px;
-    margin: 25px 0;
-}
-
-.affiliate-card h2 {
-    margin-top: 0;
-}
-
-.affiliate-card p {
-    color: var(--muted);
-    font-size: 14px;
-}
-
-.audio-controls {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 13px;
-}
-
-.audio-controls select {
-    background: #0d0a11;
-    color: white;
-    padding: 10px;
-    border: 1px solid var(--border);
-    border-radius: 9px;
-}
-
-.audio-controls input[type=range] {
-    accent-color: var(--rose);
-    max-width: 130px;
-}
-
-.pagination {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 30px;
-}
-
-.pagination a {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    padding: 9px 14px;
-    font-size: 12px;
-}
-
-.faq-item {
-    padding: 14px 0;
-    border-bottom: 1px solid var(--border);
-}
-
-.faq-item:last-child {
-    border-bottom: 0;
-}
-
-.faq-item h3 {
-    margin: 0 0 8px;
-}
-
-.site-footer {
-    border-top: 1px solid var(--border);
-    margin-top: 60px;
-    padding: 35px 0;
-    color: var(--muted);
-    font-size: 12px;
-}
-
-.footer-links {
-    display: flex;
-    gap: 18px;
-    flex-wrap: wrap;
-    margin-bottom: 15px;
-}
-
-.age-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 1000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-    background: rgba(0,0,0,.92);
-    backdrop-filter: blur(12px);
-}
-
-.age-modal {
-    width: min(430px, 100%);
-    padding: 32px;
-    background: var(--surface);
-    border: 1px solid rgba(244,63,94,.35);
-    border-radius: 20px;
-    text-align: center;
-}
-
-.age-modal h2 {
-    font-size: 28px;
-    margin: 0 0 10px;
-}
-
-.age-modal p {
-    color: var(--muted);
-    font-size: 13px;
-}
-
-.age-actions {
-    display: flex;
-    gap: 10px;
-    margin-top: 22px;
-}
-
-.age-actions button {
-    flex: 1;
-}
-
-.hidden {
-    display: none !important;
-}
-
-.empty-state {
-    color: var(--muted);
-    padding: 35px;
-    text-align: center;
-    background: var(--surface);
-    border-radius: var(--radius);
-}
-
-@media(max-width:850px) {
-    .grid {
-        grid-template-columns: repeat(2,minmax(0,1fr));
-    }
-
-    .detail-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-@media(max-width:580px) {
-    .grid {
-        grid-template-columns: 1fr;
-    }
-
-    .customizer-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .nav-links {
-        gap: 10px;
-        font-size: 11px;
-    }
-
-    .hero {
-        padding: 55px 0 35px;
-    }
-
-    .panel {
-        padding: 19px;
-    }
-
-    .section {
-        padding: 30px 0;
-    }
+    --bg:#0a080d; --surface:#16111d; --surface2:#201827;
+    --text:#f8f2fa; --muted:#aa9eaf; --border:rgba(255,255,255,.09);
+    --rose:#f43f5e; --violet:#8b5cf6; --green:#4ade80;
+    --radius:18px; --max-width:1160px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:Inter,ui-sans-serif,system-ui,-apple-system,
+    BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.7
+}
+a{color:inherit;text-decoration:none}
+a:hover{color:var(--rose)}
+button,input,select{font:inherit}
+button{cursor:pointer}
+.container{width:min(var(--max-width),calc(100% - 36px));margin:auto}
+.site-header{
+    position:sticky;top:0;z-index:50;background:rgba(10,8,13,.94);
+    backdrop-filter:blur(18px);border-bottom:1px solid var(--border)
+}
+.nav{min-height:70px;display:flex;align-items:center;
+    justify-content:space-between;gap:20px}
+.brand{font-size:19px;font-weight:900;letter-spacing:-.8px}
+.brand span{color:var(--rose)}
+.nav-links{display:flex;gap:20px;align-items:center;
+    font-size:13px;color:var(--muted)}
+.hero{padding:85px 0 55px;text-align:center;
+    background:radial-gradient(ellipse at 20% 20%,rgba(139,92,246,.14),transparent 45%),
+    radial-gradient(ellipse at 80% 40%,rgba(244,63,94,.12),transparent 45%)}
+.eyebrow{display:inline-flex;padding:6px 13px;border-radius:99px;
+    border:1px solid rgba(244,63,94,.3);background:rgba(244,63,94,.08);
+    color:#ff8196;font-size:11px;font-weight:800;text-transform:uppercase;
+    letter-spacing:1.5px}
+.hero h1{font-size:clamp(34px,6vw,62px);line-height:1.08;
+    letter-spacing:-2.5px;max-width:850px;margin:22px auto}
+.gradient-text{background:linear-gradient(100deg,#fb7185,#c084fc);
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--muted);max-width:650px;margin:0 auto 30px}
+.search-wrap{max-width:680px;margin:30px auto 0;position:relative}
+.search-input{width:100%;padding:19px 22px 19px 54px;
+    border:1px solid rgba(244,63,94,.3);border-radius:15px;outline:none;
+    color:white;background:var(--surface);box-shadow:0 15px 60px rgba(0,0,0,.2)}
+.search-input:focus{border-color:var(--rose)}
+.search-icon{position:absolute;left:19px;top:14px;color:var(--rose);font-size:21px}
+.section{padding:45px 0}
+.section-heading{display:flex;align-items:end;justify-content:space-between;
+    flex-wrap:wrap;gap:12px;margin-bottom:24px}
+.section-heading h2{font-size:clamp(23px,4vw,32px);letter-spacing:-.8px;margin:0}
+.section-heading p{margin:4px 0 0;color:var(--muted);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.persona-card,.hub-card{background:var(--surface);border:1px solid var(--border);
+    border-radius:var(--radius);padding:21px;transition:transform .2s,border-color .2s}
+.persona-card:hover,.hub-card:hover{transform:translateY(-3px);
+    border-color:rgba(244,63,94,.4)}
+.card-category{color:#c4a4ff;font-size:11px;font-weight:800;
+    text-transform:uppercase;letter-spacing:1px}
+.persona-card h3{font-size:19px;line-height:1.35;margin:10px 0}
+.persona-card p{color:var(--muted);font-size:13px}
+.card-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:15px}
+.pill{display:inline-flex;align-items:center;border-radius:99px;padding:5px 11px;
+    background:rgba(139,92,246,.13);border:1px solid rgba(139,92,246,.23);
+    color:#d3bdff;font-size:11px}
+.trait-pill{background:rgba(244,63,94,.10);border:1px solid rgba(244,63,94,.28);
+    color:#ff9bad;box-shadow:0 0 13px rgba(244,63,94,.07)}
+.card-link{display:inline-block;margin-top:15px;color:#fb7185;
+    font-size:13px;font-weight:800}
+.hub-card{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.hub-card strong{font-size:14px}
+.count{color:#ff8498;font-size:12px;white-space:nowrap}
+.tag-cloud{display:flex;flex-wrap:wrap;gap:10px}
+.tag-cloud a,.subcategory-pill{display:inline-flex;padding:8px 14px;border-radius:99px;
+    background:var(--surface);border:1px solid var(--border);
+    color:#d7c8dc;font-size:12px}
+.tag-cloud a:hover,.subcategory-pill:hover{border-color:var(--rose)}
+.breadcrumbs{color:var(--muted);font-size:12px;padding:22px 0}
+.detail-hero{padding:35px 0}
+.detail-hero h1{font-size:clamp(30px,5vw,48px);line-height:1.13;
+    letter-spacing:-1.5px;margin:15px 0}
+.detail-grid{display:grid;grid-template-columns:minmax(0,1fr) 310px;
+    gap:25px;align-items:start}
+.panel{background:var(--surface);border:1px solid var(--border);
+    border-radius:var(--radius);padding:25px;margin-bottom:20px}
+.panel h2{margin-top:0;font-size:21px}
+.panel h3{font-size:16px}
+.panel p{color:#c8bccd}
+.status-badge{display:inline-flex;padding:7px 12px;
+    border:1px solid rgba(74,222,128,.3);color:var(--green);
+    background:rgba(74,222,128,.07);border-radius:99px;font-size:11px;font-weight:800}
+.traits{display:flex;flex-wrap:wrap;gap:9px}
+.customizer-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.field label{display:block;margin-bottom:7px;color:var(--muted);
+    font-size:12px;font-weight:700}
+.field input,.field select{width:100%;background:#0d0a11;color:white;
+    border:1px solid var(--border);padding:12px;border-radius:10px;outline:none}
+.field input:focus,.field select:focus{border-color:var(--rose)}
+.action-btn{border:1px solid rgba(244,63,94,.3);background:rgba(244,63,94,.12);
+    color:#ff9bab;padding:10px 15px;border-radius:10px;font-size:12px;
+    font-weight:800;transition:.2s}
+.action-btn:hover{background:rgba(244,63,94,.23)}
+.primary-btn{display:inline-block;border:0;color:white;
+    background:linear-gradient(100deg,#f43f5e,#8b5cf6);
+    padding:13px 19px;border-radius:11px;font-weight:900;font-size:12px}
+.button-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:17px}
+.token-badge{display:inline-block;padding:6px 11px;background:rgba(139,92,246,.15);
+    border-radius:99px;color:#d4bdff;font-size:11px}
+.prompt-output{white-space:pre-wrap;overflow-wrap:anywhere;background:#0d0a11;
+    border:1px solid var(--border);border-radius:12px;padding:17px;
+    color:#ddd1e2;font-size:13px}
+.affiliate-card{border:1px solid rgba(244,63,94,.4);
+    background:radial-gradient(circle at 90% 0%,rgba(139,92,246,.2),transparent 50%),var(--surface);
+    border-radius:var(--radius);padding:27px;margin:25px 0}
+.affiliate-card h2{margin-top:0}
+.affiliate-card p{color:var(--muted);font-size:14px}
+.audio-controls{display:flex;flex-wrap:wrap;align-items:center;gap:13px}
+.audio-controls select{background:#0d0a11;color:white;padding:10px;
+    border:1px solid var(--border);border-radius:9px}
+.audio-controls input[type=range]{accent-color:var(--rose);max-width:130px}
+.pagination{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px}
+.pagination a{background:var(--surface);border:1px solid var(--border);
+    border-radius:9px;padding:9px 14px;font-size:12px}
+.faq-item{padding:14px 0;border-bottom:1px solid var(--border)}
+.faq-item:last-child{border-bottom:0}
+.faq-item h3{margin:0 0 8px}
+.site-footer{border-top:1px solid var(--border);margin-top:60px;
+    padding:35px 0;color:var(--muted);font-size:12px}
+.footer-links{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:15px}
+.network-links{display:flex;flex-wrap:wrap;gap:12px 20px;margin:14px 0}
+.network-links a{color:#d3bdff}
+.network-links a:hover{color:var(--rose)}
+.age-overlay{position:fixed;inset:0;z-index:1000;display:flex;
+    align-items:center;justify-content:center;padding:20px;
+    background:rgba(0,0,0,.92);backdrop-filter:blur(12px)}
+.age-modal{width:min(430px,100%);padding:32px;background:var(--surface);
+    border:1px solid rgba(244,63,94,.35);border-radius:20px;text-align:center}
+.age-modal h2{font-size:28px;margin:0 0 10px}
+.age-modal p{color:var(--muted);font-size:13px}
+.age-actions{display:flex;gap:10px;margin-top:22px}
+.age-actions button{flex:1}
+.hidden{display:none!important}
+.empty-state{color:var(--muted);padding:35px;text-align:center;
+    background:var(--surface);border-radius:var(--radius)}
+@media(max-width:850px){
+    .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .detail-grid{grid-template-columns:1fr}
+}
+@media(max-width:580px){
+    .grid,.customizer-grid{grid-template-columns:1fr}
+    .nav-links{gap:10px;font-size:11px}
+    .hero{padding:55px 0 35px}
+    .panel{padding:19px}
+    .section{padding:30px 0}
 }
 """
 
+
 # ============================================================
-# CLIENT-SIDE JAVASCRIPT
+# JAVASCRIPT
 # ============================================================
 
 JS = r"""
 (function () {
     "use strict";
 
-    // Automatically refresh all visible year labels.
     function updateYears() {
         const year = new Date().getFullYear();
 
-        document.querySelectorAll(".live-year").forEach(function (element) {
-            element.textContent = year;
+        document.querySelectorAll(".live-year").forEach(function (el) {
+            el.textContent = year;
         });
 
         const month = new Intl.DateTimeFormat(undefined, {
@@ -946,7 +459,6 @@ JS = r"""
 
     updateYears();
 
-    // Lightweight first-visit age confirmation.
     const ageOverlay = document.getElementById("age-overlay");
 
     if (ageOverlay) {
@@ -975,7 +487,6 @@ JS = r"""
         }
     }
 
-    // Instant homepage search.
     const search = document.getElementById("persona-search");
     const cards = Array.from(document.querySelectorAll("[data-persona-card]"));
     const resultCount = document.getElementById("search-count");
@@ -993,7 +504,6 @@ JS = r"""
                 ).toLowerCase();
 
                 const matches = !query || text.includes(query);
-
                 card.classList.toggle("hidden", !matches);
 
                 if (matches) visible++;
@@ -1005,7 +515,6 @@ JS = r"""
         });
     }
 
-    // Persona customizer.
     const studio = document.getElementById("persona-studio");
 
     if (studio) {
@@ -1023,13 +532,13 @@ JS = r"""
         const greetingOutput = document.getElementById("greeting-prompt");
         const tokenCount = document.getElementById("token-count");
 
-        const values = function () {
+        function values() {
             return {
                 character: nameInput.value.trim() || titleTemplate,
                 user: userInput.value.trim() || "you",
                 setting: settingInput.value.trim() || "a mysterious new place"
             };
-        };
+        }
 
         function replaceTemplate(template, data) {
             return String(template)
@@ -1053,9 +562,8 @@ JS = r"""
                 "Character biography:\n" + bio + "\n\n" +
                 "Setting:\n" + data.setting + "\n\n" +
                 "Interaction partner: " + data.user + ".\n\n" +
-                "Personality and dialogue should remain consistent with " +
-                "the character profile. Maintain immersion and respect " +
-                "the user's boundaries.";
+                "Keep the character consistent with the profile. " +
+                "Maintain immersion and respect the user's boundaries.";
 
             if (bioOutput) bioOutput.textContent = bio;
             if (openingOutput) openingOutput.textContent = opening;
@@ -1063,19 +571,14 @@ JS = r"""
             if (greetingOutput) greetingOutput.textContent = opening;
 
             if (tokenCount) {
-                const tokens = (system + " " + opening)
-                    .trim()
-                    .split(/\s+/)
-                    .filter(Boolean).length;
-
-                tokenCount.textContent = "~" + tokens + " words";
+                const words = (system + " " + opening)
+                    .trim().split(/\s+/).filter(Boolean).length;
+                tokenCount.textContent = "~" + words + " words";
             }
         }
 
         [nameInput, userInput, settingInput].forEach(function (input) {
-            if (input) {
-                input.addEventListener("input", updateStudio);
-            }
+            if (input) input.addEventListener("input", updateStudio);
         });
 
         updateStudio();
@@ -1117,7 +620,6 @@ JS = r"""
             });
         }
 
-        // Random bonus quirk.
         const quirks = [
             "Collects unusual little objects",
             "Secretly loves old-fashioned music",
@@ -1139,12 +641,10 @@ JS = r"""
             randomize.addEventListener("click", function () {
                 const quirk = quirks[Math.floor(Math.random() * quirks.length)];
                 const output = document.getElementById("bonus-quirk");
-
                 if (output) output.textContent = quirk;
             });
         }
 
-        // Web Audio API synthesized ambience.
         const playButton = document.getElementById("ambience-toggle");
         const modeSelect = document.getElementById("sound-mode");
         const volumeSlider = document.getElementById("sound-volume");
@@ -1156,9 +656,7 @@ JS = r"""
 
         function stopAmbience() {
             sources.forEach(function (source) {
-                try {
-                    source.stop();
-                } catch (error) {}
+                try { source.stop(); } catch (error) {}
             });
 
             sources = [];
@@ -1169,7 +667,6 @@ JS = r"""
             }
 
             isPlaying = false;
-
             if (playButton) playButton.textContent = "▶ Play Ambience";
         }
 
@@ -1186,10 +683,7 @@ JS = r"""
 
             audioContext = new AudioContextClass();
             masterGain = audioContext.createGain();
-
-            masterGain.gain.value =
-                Number(volumeSlider.value || 25) / 100;
-
+            masterGain.gain.value = Number(volumeSlider.value || 25) / 100;
             masterGain.connect(audioContext.destination);
 
             const mode = modeSelect.value;
@@ -1199,14 +693,11 @@ JS = r"""
                 const buffer = audioContext.createBuffer(
                     1, length, audioContext.sampleRate
                 );
-
                 const channel = buffer.getChannelData(0);
-
                 let previous = 0;
 
                 for (let i = 0; i < length; i++) {
                     const white = Math.random() * 2 - 1;
-
                     if (type === "pink") {
                         previous = previous * 0.96 + white * 0.04;
                         channel[i] = previous * 3.5;
@@ -1229,23 +720,20 @@ JS = r"""
                 filter.connect(gain);
                 gain.connect(masterGain);
                 source.start();
-
                 sources.push(source);
             }
 
             function oscillator(freq, waveform, gainValue) {
-                const oscillatorNode = audioContext.createOscillator();
+                const node = audioContext.createOscillator();
                 const gain = audioContext.createGain();
 
-                oscillatorNode.type = waveform;
-                oscillatorNode.frequency.value = freq;
+                node.type = waveform;
+                node.frequency.value = freq;
                 gain.gain.value = gainValue;
-
-                oscillatorNode.connect(gain);
+                node.connect(gain);
                 gain.connect(masterGain);
-                oscillatorNode.start();
-
-                sources.push(oscillatorNode);
+                node.start();
+                sources.push(node);
             }
 
             if (mode === "rain") {
@@ -1269,11 +757,8 @@ JS = r"""
 
         if (playButton) {
             playButton.addEventListener("click", function () {
-                if (isPlaying) {
-                    stopAmbience();
-                } else {
-                    startAmbience();
-                }
+                if (isPlaying) stopAmbience();
+                else startAmbience();
             });
         }
 
@@ -1299,18 +784,20 @@ JS = r"""
         }
 
         document.addEventListener("visibilitychange", function () {
-            if (document.hidden && isPlaying) {
-                stopAmbience();
-            }
+            if (document.hidden && isPlaying) stopAmbience();
+        });
+
+        window.addEventListener("pagehide", function () {
+            if (isPlaying) stopAmbience();
         });
     }
 })();
 """
 
+
 # ============================================================
 # SHARED HTML LAYOUT
 # ============================================================
-
 
 def page_head(title, description, canonical, page_type="website"):
     return f"""<!DOCTYPE html>
@@ -1324,6 +811,13 @@ def page_head(title, description, canonical, page_type="website"):
 <link rel="canonical" href="{esc(canonical)}">
 <meta name="robots" content="index,follow,max-image-preview:large">
 <meta name="theme-color" content="#0a080d">
+
+<!-- Google Search Console verification -->
+<meta name="google-site-verification" content="{esc(GOOGLE_VERIFICATION)}">
+
+<!-- Bing Webmaster Tools verification -->
+<meta name="msvalidate.01" content="{esc(BING_VERIFICATION)}">
+
 <meta property="og:type" content="{esc(page_type)}">
 <meta property="og:site_name" content="{esc(SITE_NAME)}">
 <meta property="og:title" content="{esc(title)}">
@@ -1371,6 +865,13 @@ def age_modal():
 
 
 def footer():
+    network_html = "\n".join(
+        f'<a href="{esc(url)}" target="_blank" rel="noopener">'
+        f'{esc(name)}</a>'
+        for name, url in NETWORK_SITES
+        if url.rstrip("/") != BASE_URL.rstrip("/")
+    )
+
     return f"""
 <footer class="site-footer">
 <div class="container">
@@ -1378,8 +879,15 @@ def footer():
 <a href="{BASE_URL}/">Home</a>
 <a href="{BASE_URL}/dmca.html">DMCA</a>
 <a href="{BASE_URL}/2257.html">18 U.S.C. §2257</a>
-<a href="mailto:{CONTACT_EMAIL}">Contact</a>
+<a href="mailto:{esc(CONTACT_EMAIL)}">Contact</a>
 </div>
+
+<h3>Explore Our Other Projects</h3>
+<p>Discover more tools and creative resources from our network.</p>
+<div class="network-links">
+{network_html}
+</div>
+
 <p>
 &copy; <span class="live-year">{CURRENT_YEAR}</span>
 {esc(SITE_NAME)}. All rights reserved.
@@ -1408,7 +916,6 @@ def page_shell(title, description, canonical, content, page_type="website"):
 # ============================================================
 # PERSONA CARDS
 # ============================================================
-
 
 def persona_card(row):
     tags = " ".join(row["_tags"])
@@ -1447,7 +954,6 @@ def cards_grid(rows):
 # HOMEPAGE
 # ============================================================
 
-
 def build_homepage(rows):
     categories = defaultdict(list)
     subcategories = defaultdict(list)
@@ -1461,14 +967,11 @@ def build_homepage(rows):
             tags[tag].append(row)
 
     newest = sorted(
-        rows,
-        key=lambda r: r["_date"],
-        reverse=True
+        rows, key=lambda r: r["_date"], reverse=True
     )[:NEWEST_LIMIT]
 
     category_cards = []
 
-    # One card per unique category.
     for category in sorted(categories, key=str.lower):
         items = categories[category]
         category_cards.append(f"""
@@ -1531,9 +1034,7 @@ Find a character concept and customize it instantly.
 <p>Explore every character category and its complete collection.</p>
 </div>
 </div>
-<div class="grid">
-{''.join(category_cards)}
-</div>
+<div class="grid">{''.join(category_cards)}</div>
 </div>
 </section>
 
@@ -1545,9 +1046,7 @@ Find a character concept and customize it instantly.
 <p>Discover specialized character templates.</p>
 </div>
 </div>
-<div class="tag-cloud">
-{''.join(subcategory_cards)}
-</div>
+<div class="tag-cloud">{''.join(subcategory_cards)}</div>
 </div>
 </section>
 
@@ -1559,9 +1058,7 @@ Find a character concept and customize it instantly.
 <p>Browse the library by personality and theme.</p>
 </div>
 </div>
-<div class="tag-cloud">
-{''.join(tag_cards)}
-</div>
+<div class="tag-cloud">{''.join(tag_cards)}</div>
 </div>
 </section>
 
@@ -1598,24 +1095,18 @@ to create reusable creative roleplay concepts.
 </main>
 """
 
-    content = content.replace(
-        '{cards_grid(newest)}',
-        cards_grid(newest)
-    )
-
     return page_shell(
         f"{SITE_NAME} | AI Companion Character Cards & Persona Templates",
-        f"Discover and customize fictional AI companion character cards, "
-        f"personality templates, dialogue hooks and creative persona prompts.",
+        "Discover and customize fictional AI companion character cards, "
+        "personality templates, dialogue hooks and creative persona prompts.",
         absolute_url("/"),
         content
     )
 
 
 # ============================================================
-# DETAIL PAGE STRUCTURED DATA
+# STRUCTURED DATA
 # ============================================================
-
 
 def make_detail_schema(row):
     canonical = absolute_url(
@@ -1628,14 +1119,8 @@ def make_detail_schema(row):
         "headline": row["title"],
         "description": truncate(row["description"], 250),
         "mainEntityOfPage": canonical,
-        "author": {
-            "@type": "Organization",
-            "name": SITE_NAME
-        },
-        "publisher": {
-            "@type": "Organization",
-            "name": SITE_NAME
-        },
+        "author": {"@type": "Organization", "name": SITE_NAME},
+        "publisher": {"@type": "Organization", "name": SITE_NAME},
         "datePublished": (
             row["_date"].date().isoformat()
             if row["_date"] != datetime.min else None
@@ -1674,30 +1159,28 @@ def make_detail_schema(row):
 
     faq_entities = []
 
-    for q, a in [
+    for question, answer in [
         (row["faq_q1"], row["faq_a1"]),
         (row["faq_q2"], row["faq_a2"])
     ]:
-        if q and a:
+        if question and answer:
             faq_entities.append({
                 "@type": "Question",
-                "name": q,
+                "name": question,
                 "acceptedAnswer": {
                     "@type": "Answer",
-                    "text": a
+                    "text": answer
                 }
             })
-
-    faq = {
-        "@context": "https://schema.org",
-        "@type": "FAQPage",
-        "mainEntity": faq_entities
-    }
 
     schemas = [article, breadcrumb]
 
     if faq_entities:
-        schemas.append(faq)
+        schemas.append({
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            "mainEntity": faq_entities
+        })
 
     return "\n".join(
         '<script type="application/ld+json">'
@@ -1708,13 +1191,11 @@ def make_detail_schema(row):
 
 
 # ============================================================
-# RELATED PERSONA ALGORITHM
+# RELATED PERSONAS
 # ============================================================
-
 
 def get_related(row, rows):
     candidates = []
-
     current_tags = set(row["_tag_slugs"])
 
     for other in rows:
@@ -1724,17 +1205,15 @@ def get_related(row, rows):
         same_subcategory = (
             other["_subcategory_slug"] == row["_subcategory_slug"]
         )
-
         shared_tags = len(
             current_tags.intersection(set(other["_tag_slugs"]))
         )
-
         same_category = (
             other["_category_slug"] == row["_category_slug"]
         )
 
         score = (
-            (shared_tags * 4)
+            shared_tags * 4
             + (5 if same_subcategory else 0)
             + (2 if same_category else 0)
         )
@@ -1746,31 +1225,20 @@ def get_related(row, rows):
         reverse=True
     )
 
-    result = [
-        item[2] for item in candidates[:RELATED_LIMIT]
-    ]
-
-    return result
+    return [item[2] for item in candidates[:RELATED_LIMIT]]
 
 
 # ============================================================
-# CHARACTER DETAIL PAGE
+# DETAIL PAGES
 # ============================================================
-
 
 def build_detail_page(row, rows):
     related = get_related(row, rows)
 
-    traits = row["_traits"]
-
-    if not traits:
-        traits = [
-            "Creative",
-            "Expressive",
-            "Thoughtful",
-            "Adaptable",
-            "Imaginative"
-        ]
+    traits = row["_traits"] or [
+        "Creative", "Expressive", "Thoughtful",
+        "Adaptable", "Imaginative"
+    ]
 
     traits_html = "".join(
         f'<span class="trait-pill">{esc(trait)}</span>'
@@ -1799,29 +1267,22 @@ def build_detail_page(row, rows):
 
     title = row["title"]
     description = row["description"]
-
     canonical = absolute_url(
         f"/persona/{quote(row['slug'])}.html"
     )
 
-    related_html = cards_grid(related)
-
-    # Use raw templates as data attributes and escape them.
     studio_attributes = (
         f'data-bio="{esc(row["character_bio"])}" '
         f'data-opening="{esc(row["opening_line"])}" '
         f'data-title="{esc(title)}"'
     )
 
-    schema = make_detail_schema(row)
-
     content = f"""
 <main class="container">
 <div class="breadcrumbs">
 <a href="{BASE_URL}/">Home</a> /
 <a href="{BASE_URL}/category/{row['_category_slug']}/page-1.html">
-{esc(row['category'])}</a> /
-{esc(title)}
+{esc(row['category'])}</a> / {esc(title)}
 </div>
 
 <section class="detail-hero">
@@ -1832,11 +1293,9 @@ def build_detail_page(row, rows):
 <span class="pill">{esc(row['subcategory'])}</span>
 {tags_html}
 </div>
-<p>
-<span class="status-badge compatibility-status">
+<p><span class="status-badge compatibility-status">
 Compatibility Verified: {datetime.utcnow().strftime("%B %Y")}
-</span>
-</p>
+</span></p>
 </section>
 
 <div class="detail-grid">
@@ -1870,7 +1329,6 @@ profile and opening dialogue instantly.
 
 <h3>Customized Character Biography</h3>
 <div class="prompt-output" id="custom-bio"></div>
-
 <h3>Customized Opening Line</h3>
 <div class="prompt-output" id="custom-opening"></div>
 </section>
@@ -1883,10 +1341,8 @@ profile and opening dialogue instantly.
 Randomize Bonus Quirk
 </button>
 </div>
-<p>
-<strong>Bonus Quirk:</strong>
-<span id="bonus-quirk">Discover a surprise character detail.</span>
-</p>
+<p><strong>Bonus Quirk:</strong>
+<span id="bonus-quirk">Discover a surprise character detail.</span></p>
 </section>
 
 <section class="panel">
@@ -1895,20 +1351,13 @@ Randomize Bonus Quirk
 Use the generated system prompt in a compatible AI conversation
 platform. Customize the profile before copying.
 </p>
-
 <div class="button-row">
-<button class="primary-btn" id="copy-system">
-Copy System Prompt
-</button>
-<button class="action-btn" id="copy-greeting">
-Copy Opening Greeting
-</button>
+<button class="primary-btn" id="copy-system">Copy System Prompt</button>
+<button class="action-btn" id="copy-greeting">Copy Opening Greeting</button>
 <span class="token-badge" id="token-count">Calculating...</span>
 </div>
-
 <h3>System Prompt Preview</h3>
 <div class="prompt-output" id="system-prompt"></div>
-
 <h3>Opening Greeting Preview</h3>
 <div class="prompt-output" id="greeting-prompt"></div>
 </section>
@@ -1920,17 +1369,14 @@ Generate lightweight atmospheric background audio directly
 in your browser using the Web Audio API.
 </p>
 <div class="audio-controls">
-<button class="action-btn" id="ambience-toggle">
-▶ Play Ambience
-</button>
+<button class="action-btn" id="ambience-toggle">▶ Play Ambience</button>
 <select id="sound-mode" aria-label="Sound mode">
 <option value="rain">Midnight Rain</option>
 <option value="velvet">Soft Velvet Hum</option>
 <option value="cafe">Cozy Cafe Murmur</option>
 </select>
 <label for="sound-volume">Volume</label>
-<input type="range" id="sound-volume"
- min="0" max="100" value="25">
+<input type="range" id="sound-volume" min="0" max="100" value="25">
 </div>
 </section>
 
@@ -1940,7 +1386,7 @@ in your browser using the Web Audio API.
 <h2>About This Character Persona</h2>
 <p>{esc(description)}</p>
 <h3>Character Background</h3>
-<p id="static-bio">{esc(row['character_bio'])}</p>
+<p>{esc(row['character_bio'])}</p>
 <h3>Personality Characteristics</h3>
 <div class="traits">{traits_html}</div>
 <h3>Opening Dialogue</h3>
@@ -1987,12 +1433,12 @@ character interactions.
 <p>Explore similar characters based on shared themes and traits.</p>
 </div>
 </div>
-{related_html}
+{cards_grid(related)}
 </section>
 </main>
 """
 
-    content += schema
+    content += make_detail_schema(row)
 
     return page_shell(
         f"{title} | Character Persona Template | {SITE_NAME}",
@@ -2004,9 +1450,8 @@ character interactions.
 
 
 # ============================================================
-# CATEGORY PAGINATION
+# CATEGORY HUBS WITH PAGINATION
 # ============================================================
-
 
 def build_category_hubs(rows):
     groups = defaultdict(list)
@@ -2015,16 +1460,9 @@ def build_category_hubs(rows):
         groups[row["category"]].append(row)
 
     for category, items in groups.items():
-        items.sort(
-            key=lambda r: r["_date"],
-            reverse=True
-        )
+        items.sort(key=lambda r: r["_date"], reverse=True)
 
-        total_pages = max(
-            1,
-            math.ceil(len(items) / ITEMS_PER_PAGE)
-        )
-
+        total_pages = max(1, math.ceil(len(items) / ITEMS_PER_PAGE))
         category_slug = slugify(category)
 
         for page_number in range(1, total_pages + 1):
@@ -2034,15 +1472,11 @@ def build_category_hubs(rows):
             current_path = (
                 f"/category/{category_slug}/page-{page_number}.html"
             )
-
             canonical = absolute_url(current_path)
 
             title = (
                 f"{category} Character Personas"
-                + (
-                    f" | Page {page_number}"
-                    if page_number > 1 else ""
-                )
+                + (f" | Page {page_number}" if page_number > 1 else "")
             )
 
             description = (
@@ -2052,23 +1486,32 @@ def build_category_hubs(rows):
             )
 
             navigation = []
+            extra_links = ""
+
+            # Compute URLs separately to avoid nested f-string issues.
+            prev_url = None
+            next_url = None
 
             if page_number > 1:
-                prev_url = (
-                    f"{BASE_URL}/category/{category_slug}/"
-                    f"page-{page_number - 1}.html"
+                prev_url = absolute_url(
+                    f"/category/{category_slug}/page-{page_number - 1}.html"
                 )
                 navigation.append(
-                    f'<a href="{prev_url}" rel="prev">Previous</a>'
+                    f'<a href="{esc(prev_url)}" rel="prev">Previous</a>'
+                )
+                extra_links += (
+                    f'<link rel="prev" href="{esc(prev_url)}">'
                 )
 
             if page_number < total_pages:
-                next_url = (
-                    f"{BASE_URL}/category/{category_slug}/"
-                    f"page-{page_number + 1}.html"
+                next_url = absolute_url(
+                    f"/category/{category_slug}/page-{page_number + 1}.html"
                 )
                 navigation.append(
-                    f'<a href="{next_url}" rel="next">Next</a>'
+                    f'<a href="{esc(next_url)}" rel="next">Next</a>'
+                )
+                extra_links += (
+                    f'<link rel="next" href="{esc(next_url)}">'
                 )
 
             pagination = (
@@ -2091,18 +1534,6 @@ def build_category_hubs(rows):
 </main>
 """
 
-            extra_links = ""
-
-            if page_number > 1:
-                extra_links += (
-                    f'<link rel="prev" href="{esc(prev_url)}">'
-                )
-
-            if page_number < total_pages:
-                extra_links += (
-                    f'<link rel="next" href="{esc(next_url)}">'
-                )
-
             page = page_shell(
                 f"{title} | {SITE_NAME}",
                 description,
@@ -2114,9 +1545,7 @@ def build_category_hubs(rows):
 
             write_file(
                 os.path.join(
-                    OUTPUT_DIR,
-                    "category",
-                    category_slug,
+                    OUTPUT_DIR, "category", category_slug,
                     f"page-{page_number}.html"
                 ),
                 page
@@ -2127,7 +1556,6 @@ def build_category_hubs(rows):
 # SUBCATEGORY HUBS
 # ============================================================
 
-
 def build_topic_hubs(rows):
     groups = defaultdict(list)
 
@@ -2135,11 +1563,7 @@ def build_topic_hubs(rows):
         groups[row["subcategory"]].append(row)
 
     for name, items in groups.items():
-        items.sort(
-            key=lambda r: r["_date"],
-            reverse=True
-        )
-
+        items.sort(key=lambda r: r["_date"], reverse=True)
         topic_slug = slugify(name)
 
         description = (
@@ -2161,11 +1585,7 @@ def build_topic_hubs(rows):
 """
 
         write_file(
-            os.path.join(
-                OUTPUT_DIR,
-                "topic",
-                topic_slug + ".html"
-            ),
+            os.path.join(OUTPUT_DIR, "topic", topic_slug + ".html"),
             page_shell(
                 f"{name} Character Templates | {SITE_NAME}",
                 description,
@@ -2179,7 +1599,6 @@ def build_topic_hubs(rows):
 # TAG HUBS
 # ============================================================
 
-
 def build_tag_hubs(rows):
     groups = defaultdict(list)
 
@@ -2188,11 +1607,7 @@ def build_tag_hubs(rows):
             groups[tag].append(row)
 
     for tag, items in groups.items():
-        items.sort(
-            key=lambda r: r["_date"],
-            reverse=True
-        )
-
+        items.sort(key=lambda r: r["_date"], reverse=True)
         tag_slug = slugify(tag)
 
         description = (
@@ -2214,11 +1629,7 @@ def build_tag_hubs(rows):
 """
 
         write_file(
-            os.path.join(
-                OUTPUT_DIR,
-                "tag",
-                tag_slug + ".html"
-            ),
+            os.path.join(OUTPUT_DIR, "tag", tag_slug + ".html"),
             page_shell(
                 f"{tag} Character Personas | {SITE_NAME}",
                 description,
@@ -2229,30 +1640,26 @@ def build_tag_hubs(rows):
 
 
 # ============================================================
-# LEGAL AND INFORMATIONAL PAGES
+# LEGAL PAGES
 # ============================================================
-
 
 def build_legal_pages():
     dmca_content = f"""
 <main class="container section">
 <span class="eyebrow">Copyright Information</span>
 <h1>DMCA Copyright Policy</h1>
-
 <div class="panel">
 <h2>Copyright Respect</h2>
 <p>
 {esc(SITE_NAME)} respects the intellectual property rights
 of creators and expects users and contributors to do the same.
 </p>
-
 <h2>Submitting a Copyright Notice</h2>
 <p>
 If you believe material published on this website infringes
 your copyright, send a written notice to:
 </p>
-<p><a href="mailto:{CONTACT_EMAIL}">{CONTACT_EMAIL}</a></p>
-
+<p><a href="mailto:{esc(CONTACT_EMAIL)}">{esc(CONTACT_EMAIL)}</a></p>
 <p>Your notice should include:</p>
 <ul>
 <li>Identification of the copyrighted work.</li>
@@ -2263,13 +1670,11 @@ your copyright, send a written notice to:
 authorized to act on behalf of the rights holder.</li>
 <li>Your physical or electronic signature.</li>
 </ul>
-
 <h2>Review and Response</h2>
 <p>
 Valid notices will be reviewed. Where appropriate, material may
 be restricted or removed while the matter is investigated.
 </p>
-
 <h2>Contact</h2>
 <p>{esc(CONTACT_EMAIL)}</p>
 </div>
@@ -2290,7 +1695,6 @@ be restricted or removed while the matter is investigated.
 <main class="container section">
 <span class="eyebrow">Compliance Information</span>
 <h1>18 U.S.C. §2257 Statement</h1>
-
 <div class="panel">
 <h2>Nature of Website Content</h2>
 <p>
@@ -2299,24 +1703,21 @@ creative writing resource. The website publishes text-based
 fictional character descriptions, personality profiles,
 dialogue prompts, and AI companion concepts.
 </p>
-
 <h2>Nature of Materials</h2>
 <p>
 The website does not intentionally publish actual visual
 depictions of sexually explicit conduct. Character profiles
 and dialogue templates are fictional textual materials.
 </p>
-
 <h2>Age Requirement</h2>
 <p>
 Access to the website is intended for adults aged 18 or older.
 A browser-based age confirmation is displayed to visitors.
 </p>
-
 <h2>Contact</h2>
 <p>
 For questions about website content or compliance, contact
-<a href="mailto:{CONTACT_EMAIL}">{esc(CONTACT_EMAIL)}</a>.
+<a href="mailto:{esc(CONTACT_EMAIL)}">{esc(CONTACT_EMAIL)}</a>.
 </p>
 </div>
 </main>
@@ -2337,14 +1738,11 @@ For questions about website content or compliance, contact
 # XML SITEMAP STYLESHEET
 # ============================================================
 
-
 SITEMAP_XSL = r"""<?xml version="1.0" encoding="UTF-8"?>
 <xsl:stylesheet version="1.0"
  xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
  xmlns:s="http://www.sitemaps.org/schemas/sitemap/0.9">
-
 <xsl:output method="html" encoding="UTF-8" indent="yes"/>
-
 <xsl:template match="/">
 <html lang="en">
 <head>
@@ -2353,29 +1751,12 @@ SITEMAP_XSL = r"""<?xml version="1.0" encoding="UTF-8"?>
 <title>Character Persona Hub — XML Sitemap</title>
 <style>
 *{box-sizing:border-box}
-body{
-margin:0;
-padding:35px 20px;
-background:#0a080d;
-color:#f8f2fa;
-font-family:Arial,sans-serif;
-}
+body{margin:0;padding:35px 20px;background:#0a080d;color:#f8f2fa;font-family:Arial,sans-serif}
 main{max-width:1100px;margin:auto}
 h1{color:#fb7185}
 p{color:#aa9eaf}
-table{
-width:100%;
-border-collapse:collapse;
-background:#16111d;
-border-radius:12px;
-overflow:hidden;
-}
-th,td{
-text-align:left;
-padding:13px;
-border-bottom:1px solid #302536;
-font-size:13px;
-}
+table{width:100%;border-collapse:collapse;background:#16111d;border-radius:12px;overflow:hidden}
+th,td{text-align:left;padding:13px;border-bottom:1px solid #302536;font-size:13px}
 th{color:#c4a4ff}
 a{color:#fb8196;text-decoration:none;overflow-wrap:anywhere}
 a:hover{text-decoration:underline}
@@ -2386,17 +1767,10 @@ a:hover{text-decoration:underline}
 <h1>Character Persona Hub Sitemap</h1>
 <p>Index of published pages.</p>
 <table>
-<tr>
-<th>URL</th>
-<th>Last Modified</th>
-</tr>
+<tr><th>URL</th><th>Last Modified</th></tr>
 <xsl:for-each select="s:urlset/s:url">
 <tr>
-<td>
-<a href="{s:loc}">
-<xsl:value-of select="s:loc"/>
-</a>
-</td>
+<td><a href="{s:loc}"><xsl:value-of select="s:loc"/></a></td>
 <td><xsl:value-of select="s:lastmod"/></td>
 </tr>
 </xsl:for-each>
@@ -2410,20 +1784,15 @@ a:hover{text-decoration:underline}
 
 
 # ============================================================
-# SITEMAP GENERATOR
+# SITEMAPS
 # ============================================================
 
-
 def build_sitemaps(rows):
-    urls = set()
-
-    urls.add(absolute_url("/"))
+    urls = {absolute_url("/")}
 
     for row in rows:
         urls.add(
-            absolute_url(
-                f"/persona/{quote(row['slug'])}.html"
-            )
+            absolute_url(f"/persona/{quote(row['slug'])}.html")
         )
 
     category_groups = defaultdict(list)
@@ -2436,10 +1805,7 @@ def build_sitemaps(rows):
         tag_groups.update(row["_tag_slugs"])
 
     for category_slug, items in category_groups.items():
-        pages = max(
-            1,
-            math.ceil(len(items) / ITEMS_PER_PAGE)
-        )
+        pages = max(1, math.ceil(len(items) / ITEMS_PER_PAGE))
 
         for page in range(1, pages + 1):
             urls.add(
@@ -2457,6 +1823,7 @@ def build_sitemaps(rows):
     urls.update([
         absolute_url("/dmca.html"),
         absolute_url("/2257.html"),
+        absolute_url("/404.html"),
     ])
 
     sorted_urls = sorted(urls)
@@ -2487,14 +1854,12 @@ def build_sitemaps(rows):
             )
 
         xml.append("</urlset>")
-
         filename = f"sitemap-{number}.xml"
 
         write_file(
             os.path.join(OUTPUT_DIR, filename),
             "\n".join(xml)
         )
-
         sitemap_files.append(filename)
 
     if len(sitemap_files) == 1:
@@ -2529,7 +1894,6 @@ def build_sitemaps(rows):
 # ROBOTS.TXT
 # ============================================================
 
-
 def build_robots():
     content = f"""User-agent: *
 Allow: /
@@ -2539,16 +1903,12 @@ Disallow: /404.html
 Sitemap: {BASE_URL}/sitemap.xml
 """
 
-    write_file(
-        os.path.join(OUTPUT_DIR, "robots.txt"),
-        content
-    )
+    write_file(os.path.join(OUTPUT_DIR, "robots.txt"), content)
 
 
 # ============================================================
-# CLOUDFLARE / HOSTING SUPPORT
+# 404 PAGE
 # ============================================================
-
 
 def build_not_found():
     content = """
@@ -2574,58 +1934,79 @@ def build_not_found():
 
 
 # ============================================================
+# CLOUDFLARE SUPPORT FILES
+# ============================================================
+
+def build_hosting_files():
+    headers = """/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: SAMEORIGIN
+
+/*.xml
+  Content-Type: application/xml; charset=utf-8
+
+/*.xsl
+  Content-Type: text/xsl; charset=utf-8
+"""
+
+    redirects = """# Cloudflare Pages uses the generated 404.html automatically.
+"""
+
+    write_file(os.path.join(OUTPUT_DIR, "_headers"), headers)
+    write_file(os.path.join(OUTPUT_DIR, "_redirects"), redirects)
+
+
+# ============================================================
 # VALIDATION
 # ============================================================
 
-
 def validate_generated_site(rows):
     required_files = [
-        "index.html",
-        "sitemap.xml",
-        "sitemap.xsl",
-        "robots.txt",
-        "dmca.html",
-        "2257.html",
-        "404.html",
+        "index.html", "sitemap.xml", "sitemap.xsl",
+        "robots.txt", "dmca.html", "2257.html", "404.html",
+        "_headers", "_redirects",
     ]
 
     for filename in required_files:
         path = os.path.join(OUTPUT_DIR, filename)
-
         if not os.path.isfile(path):
             raise RuntimeError(
                 f"Build validation failed: missing {filename}"
             )
 
+    homepage_path = os.path.join(OUTPUT_DIR, "index.html")
+
+    with open(homepage_path, "r", encoding="utf-8") as file:
+        homepage = file.read()
+
+    for check in [
+        'id="persona-search"',
+        'id="categories"',
+        GOOGLE_VERIFICATION,
+        BING_VERIFICATION,
+    ]:
+        if check not in homepage:
+            raise RuntimeError(
+                f"Homepage validation failed: missing {check}"
+            )
+
+    # Check that the network footer is present on the homepage.
+    for name, url in NETWORK_SITES:
+        if url.rstrip("/") != BASE_URL.rstrip("/") and url not in homepage:
+            raise RuntimeError(
+                f"Network footer validation failed: missing {name}"
+            )
+
     for row in rows:
         path = os.path.join(
-            OUTPUT_DIR,
-            "persona",
-            row["slug"] + ".html"
+            OUTPUT_DIR, "persona", row["slug"] + ".html"
         )
 
         if not os.path.isfile(path):
             raise RuntimeError(
                 f"Build validation failed: missing persona {row['slug']}"
             )
-
-    homepage = os.path.join(OUTPUT_DIR, "index.html")
-
-    with open(homepage, "r", encoding="utf-8") as file:
-        homepage_html = file.read()
-
-    if 'id="persona-search"' not in homepage_html:
-        raise RuntimeError("Homepage search was not generated.")
-
-    if 'id="categories"' not in homepage_html:
-        raise RuntimeError("Homepage category hub was not generated.")
-
-    for row in rows:
-        path = os.path.join(
-            OUTPUT_DIR,
-            "persona",
-            row["slug"] + ".html"
-        )
 
         with open(path, "r", encoding="utf-8") as file:
             content = file.read()
@@ -2641,6 +2022,8 @@ def validate_generated_site(rows):
             "ambience-toggle",
             "AD_SLOT_MID_CONTENT",
             "RTA-5042-1996-1400-1577-RTA",
+            GOOGLE_VERIFICATION,
+            BING_VERIFICATION,
         ]
 
         for check in checks:
@@ -2655,41 +2038,32 @@ def validate_generated_site(rows):
 # BUILD ENTRY POINT
 # ============================================================
 
-
 def main():
     print("=" * 65)
     print(f" {SITE_NAME}")
     print(" Static Programmatic SEO Website Generator")
     print("=" * 65)
 
-    print("\n[1/10] Reading CSV...")
+    print("\n[1/11] Reading CSV...")
     rows = read_csv()
-
     print(f"      Loaded {len(rows)} character personas.")
 
-    print("\n[2/10] Preparing output directory...")
+    print("\n[2/11] Preparing output directory...")
     make_directory()
 
-    print("\n[3/10] Building homepage...")
-    homepage = build_homepage(rows)
-
+    print("\n[3/11] Building homepage...")
     write_file(
         os.path.join(OUTPUT_DIR, "index.html"),
-        homepage
+        build_homepage(rows)
     )
 
-    print("\n[4/10] Building character detail pages...")
-
+    print("\n[4/11] Building character detail pages...")
     for index, row in enumerate(rows, start=1):
-        detail = build_detail_page(row, rows)
-
         write_file(
             os.path.join(
-                OUTPUT_DIR,
-                "persona",
-                row["slug"] + ".html"
+                OUTPUT_DIR, "persona", row["slug"] + ".html"
             ),
-            detail
+            build_detail_page(row, rows)
         )
 
         if index % 100 == 0:
@@ -2697,62 +2071,53 @@ def main():
 
     print(f"      Generated {len(rows)} detail pages.")
 
-    print("\n[5/10] Building paginated category hubs...")
+    print("\n[5/11] Building category hubs...")
     build_category_hubs(rows)
 
-    print("\n[6/10] Building subcategory hubs...")
+    print("\n[6/11] Building subcategory hubs...")
     build_topic_hubs(rows)
 
-    print("\n[7/10] Building tag hubs...")
+    print("\n[7/11] Building tag hubs...")
     build_tag_hubs(rows)
 
-    print("\n[8/10] Building legal and error pages...")
+    print("\n[8/11] Building legal and 404 pages...")
     build_legal_pages()
     build_not_found()
 
-    print("\n[9/10] Building XML sitemaps and robots.txt...")
+    print("\n[9/11] Building sitemaps and robots.txt...")
     build_sitemaps(rows)
     build_robots()
 
-    print("\n[10/10] Validating generated website...")
+    print("\n[10/11] Building hosting support files...")
+    build_hosting_files()
+
+    print("\n[11/11] Validating generated website...")
     validate_generated_site(rows)
+
+    category_count = len({r["category"] for r in rows})
+    topic_count = len({r["subcategory"] for r in rows})
+    tag_count = len({tag for r in rows for tag in r["_tags"]})
+
+    category_pages = sum(
+        max(1, math.ceil(count / ITEMS_PER_PAGE))
+        for count in Counter(r["category"] for r in rows).values()
+    )
 
     print("\n" + "=" * 65)
     print(" BUILD COMPLETED SUCCESSFULLY")
     print("=" * 65)
-
-    print(f"\nWebsite:       {BASE_URL}")
-    print(f"Output:        {os.path.abspath(OUTPUT_DIR)}")
-    print(f"Personas:      {len(rows)}")
-
-    category_count = len({
-        row["category"] for row in rows
-    })
-
-    topic_count = len({
-        row["subcategory"] for row in rows
-    })
-
-    tag_count = len({
-        tag for row in rows for tag in row["_tags"]
-    })
-
-    category_pages = sum(
-        max(1, math.ceil(count / ITEMS_PER_PAGE))
-        for count in Counter(
-            row["category"] for row in rows
-        ).values()
-    )
-
-    print(f"Categories:    {category_count}")
-    print(f"Category pages:{category_pages}")
-    print(f"Subcategories: {topic_count}")
-    print(f"Unique tags:   {tag_count}")
-
+    print(f"\nWebsite:        {BASE_URL}")
+    print(f"Output folder:  {os.path.abspath(OUTPUT_DIR)}")
+    print(f"Personas:       {len(rows)}")
+    print(f"Categories:     {category_count}")
+    print(f"Category pages: {category_pages}")
+    print(f"Subcategories:  {topic_count}")
+    print(f"Unique tags:    {tag_count}")
+    print("\nVerification tags: Google + Bing included")
+    print("Network footer: 9 other websites included")
     print("\nCloudflare deployment:")
     print("  Build command: python3 build.py")
     print("  Output folder: dist")
-    print("  Build output:  dist/index.html")
     print("\n" + "=" * 65)
 
 
